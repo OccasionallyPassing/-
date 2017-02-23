@@ -1,0 +1,668 @@
+//
+//  UIMarginViewController.m
+//  side
+//
+//  Created by xiaopengzhao on 16/9/29.
+//  Copyright © 2016年 appleDeveloper. All rights reserved.
+//
+
+#import "UIMarginViewController.h"
+#import <objc/runtime.h>
+
+@interface UIMarginBarViewController (object)
+@property (nonatomic,retain) UIMarginViewController *MarginViewController;
+@end
+
+
+@implementation UIMarginBarViewController (object)
+@dynamic MarginViewController;
+
+- (UIMarginViewController *)MarginViewController
+{
+    return objc_getAssociatedObject(self, "MarginViewController");
+}
+
+
+- (void)setMarginViewController:(UIMarginViewController *)MarginViewController
+{
+    objc_setAssociatedObject(self, "MarginViewController", MarginViewController, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+@end
+
+
+@interface UIMarginViewController ()
+- (void)pushViewController:(UIViewController *)viewController barImage:(UIImage *)barImage animated:(BOOL)animated;
+@end
+
+
+@implementation UIMarginBarViewController
+
+- (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated
+{
+    UIImage *image = nil;
+    UIInterfaceOrientation orientation = [UIApplication sharedApplication].statusBarOrientation;
+    if (UIInterfaceOrientationIsPortrait(orientation))
+    {
+        image = [self.navigationController.navigationBar backgroundImageForBarMetrics:UIBarMetricsDefault];
+    }
+    else
+    {
+        image = [self.navigationController.navigationBar backgroundImageForBarMetrics:UIBarMetricsCompact];
+    }
+    
+    [self.MarginViewController pushViewController:viewController barImage:image animated:YES];
+}
+
+@end
+
+
+@interface UIMarginViewController ()<UIGestureRecognizerDelegate>
+{
+    BOOL leftHasShowed;
+    BOOL rightHasShowed;
+    
+    CGFloat lastMoveX;
+}
+@property (nonatomic,retain) UINavigationController *theRootController;
+@property (nonatomic,retain) UIViewController *theLeftController;
+@property (nonatomic,retain) UIViewController *theRightController;
+
+@property (nonatomic,retain) UIImageView *layerView;
+@end
+
+@implementation UIMarginViewController
+@synthesize theLeftController,theRightController,theRootController;
+@synthesize shouldShowMarginShadow,shouldShowViewShadow;
+@synthesize leftViewWidth,rightViewWidth;
+@synthesize layerView,viewShadowAlpha;
+@synthesize shadowColor,shouldAlwaysShowMarginBarView;
+
+- (instancetype)initWithRootViewController:(UINavigationController *)rootViewController
+{
+    if (self = [super init])
+    {
+        [self setViewShadowAlpha:.5];
+        [self setTheRootController:rootViewController];
+    }
+    return self;
+}
+
+
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    // Do any additional setup after loading the view.
+#if __IPHONE_OS_VERSION_MAX_ALLOWED > __IPHONE_6_1
+    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)])
+    {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+        [self setAutomaticallyAdjustsScrollViewInsets:NO];
+    }
+#endif
+    lastMoveX = -1;
+    [self setViewShadowAlpha:MIN(1, viewShadowAlpha)];
+    [self setViewShadowAlpha:MAX(0, viewShadowAlpha)];
+    [self setShadowColor:[UIColor darkGrayColor]];
+    [self setShouldAlwaysShowMarginBarView:YES];
+    
+    CGRect frame = CGRectMake(0, 0, [UIScreen mainScreen].bounds.size.width, [UIScreen mainScreen].bounds.size.height);
+    UIImageView *imageView = [[UIImageView alloc] initWithFrame:frame];
+    [imageView setImage:[self imageWithColor:[UIColor colorWithRed:0 green:0 blue:0 alpha:viewShadowAlpha]]];
+    [imageView setUserInteractionEnabled:YES];
+    [self setLayerView:imageView];
+    [imageView setAlpha:0];
+    [imageView release];
+    
+    [self setLeftViewWidth:leftViewWidth>0?leftViewWidth:frame.size.width*.618];
+    [self setRightViewWidth:rightViewWidth>0?rightViewWidth:frame.size.width*.618];
+    if (theLeftController)
+    {
+        CGRect rect = CGRectMake(-leftViewWidth, 0, leftViewWidth, theLeftController.view.frame.size.height);
+        [theLeftController.view setFrame:rect];
+        [self.view addSubview:theLeftController.view];
+    }
+    
+    if (theRightController)
+    {
+        CGRect rect = CGRectMake(frame.origin.x+frame.size.width, 0, rightViewWidth, theRightController.view.frame.size.height);
+        [theRightController.view setFrame:rect];
+        [self.view addSubview:theRightController.view];
+    }
+//滑动监听
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panHandle:)];
+    [theRootController.view addGestureRecognizer:pan];
+    [pan release];
+//单击
+    [theRootController.view setFrame:frame];
+    [self.view addSubview:theRootController.view];
+    [theRootController.view addSubview:self.layerView];
+    
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapHandle)];
+    tap.delegate = self;
+    [layerView addGestureRecognizer:tap];
+    [tap release];
+}
+
+
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+}
+
+- (void)didReceiveMemoryWarning
+{
+    [super didReceiveMemoryWarning];
+    // Dispose of any resources that can be recreated.
+}
+
+
+- (void)dealloc
+{
+    [shadowColor release];
+    [theRootController release];
+    [theLeftController release];
+    [theRightController release];
+    [super dealloc];
+}
+
+
+#pragma mark - UIGestureRecognizer
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch
+{
+    if ([NSStringFromClass([touch.view class]) isEqualToString:@"UITableViewCellContentView"])
+    {
+        return NO;
+    }
+    return YES;
+}
+
+
+-(void)panHandle:(UIPanGestureRecognizer *)pan
+{
+    CGPoint translation = [pan translationInView:self.view];
+    CGFloat translationX = translation.x;
+    BOOL directionToRight = NO;
+    CGFloat panX = pan.view.frame.origin.x;
+    if (panX > lastMoveX)
+    {
+        directionToRight = YES;
+    }
+    else
+    {
+        directionToRight = NO;
+    }
+    
+    if(translationX+pan.view.frame.origin.x>=0)
+    {
+        leftHasShowed = directionToRight;
+        if(pan.state == UIGestureRecognizerStateBegan || pan.state == UIGestureRecognizerStateChanged)
+        {
+            CGRect frame = theLeftController.view.frame;
+            frame.origin.x = theLeftController.view.frame.origin.x+translationX;
+            frame.origin.x = MIN(0, frame.origin.x);
+            theLeftController.view.frame = frame;
+            
+            frame = CGRectMake(theLeftController.view.frame.origin.x+theLeftController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+            theRootController.view.frame = frame;
+            
+            frame = CGRectMake(frame.origin.x+frame.size.width, 0, rightViewWidth, theRightController.view.frame.size.height);
+            [theRightController.view setFrame:frame];
+            
+            [self setShadow];
+            
+            if (shouldShowViewShadow && panX != lastMoveX)
+            {
+                if (directionToRight && self.layerView.alpha != 1)
+                {
+                    [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+                    {
+                        [self.layerView setAlpha:1];
+                    }
+                    completion:^(BOOL finished)
+                    {
+                        
+                    }];
+                }
+                
+                if (!directionToRight && self.layerView.alpha != 0)
+                {
+                    [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+                    {
+                         [self.layerView setAlpha:0];
+                    }
+                    completion:^(BOOL finished)
+                    {
+                         
+                    }];
+                }
+            }
+            [pan setTranslation:CGPointZero inView:theRootController.view];
+        }
+        else if(pan.state == UIGestureRecognizerStateFailed || pan.state == UIGestureRecognizerStateEnded)
+        {
+            if(pan.view.frame.origin.x<theLeftController.view.frame.size.width)
+            {
+                CGFloat duration = .3 * (theRootController.view.frame.origin.x) / self.view.bounds.size.width;
+                [UIView animateWithDuration:duration animations:^
+                {
+                    CGRect frame = theLeftController.view.frame;
+                    frame.origin.x = directionToRight?0:-theLeftController.view.frame.size.width;
+                    theLeftController.view.frame = frame;
+                    lastMoveX = theLeftController.view.frame.origin.x+theLeftController.view.frame.size.width;
+                    
+                    frame = CGRectMake(theLeftController.view.frame.origin.x+theLeftController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+                    theRootController.view.frame = frame;
+                    
+                    frame = CGRectMake(frame.origin.x+frame.size.width, 0, rightViewWidth, theRightController.view.frame.size.height);
+                    [theRightController.view setFrame:frame];
+                }
+                completion:^(BOOL finished)
+                {
+                }];
+            }
+        }
+    }
+    else
+    {
+        rightHasShowed = !directionToRight;
+        if(pan.state == UIGestureRecognizerStateBegan || pan.state == UIGestureRecognizerStateChanged)
+        {
+            CGRect frame = theRightController.view.frame;
+            frame.origin.x = theRightController.view.frame.origin.x+translationX;
+            frame.origin.x = MAX(theRootController.view.frame.size.width-rightViewWidth, frame.origin.x);
+            theRightController.view.frame = frame;
+            
+            frame = CGRectMake(frame.origin.x-theRootController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+            theRootController.view.frame = frame;
+            
+            frame = CGRectMake(frame.origin.x-leftViewWidth, 0, leftViewWidth, theLeftController.view.frame.size.height);
+            [theLeftController.view setFrame:frame];
+            
+            [self setShadow];
+            if (shouldShowViewShadow && panX != lastMoveX)
+            {
+                if (!directionToRight && self.layerView.alpha != 1)
+                {
+                    [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+                    {
+                        [self.layerView setAlpha:1];
+                    }
+                    completion:^(BOOL finished)
+                    {
+                        
+                    }];
+                }
+                
+                if (directionToRight && self.layerView.alpha != 0)
+                {
+                    [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+                    {
+                        [self.layerView setAlpha:0];
+                    }
+                    completion:^(BOOL finished)
+                    {
+                        
+                    }];
+                }
+            }
+            [pan setTranslation:CGPointZero inView:theRootController.view];
+        }
+        else if(pan.state == UIGestureRecognizerStateFailed || pan.state == UIGestureRecognizerStateEnded)
+        {
+            if(fabs(pan.view.frame.origin.x)<theRightController.view.frame.size.width)
+            {
+                CGFloat duration = .3 * (theRootController.view.frame.origin.x) / self.view.bounds.size.width;
+                [UIView animateWithDuration:duration animations:^
+                {
+                    CGRect frame = theRightController.view.frame;
+                    frame.origin.x = directionToRight?theRootController.view.frame.size.width:theRootController.view.frame.size.width-rightViewWidth;
+                     theRightController.view.frame = frame;
+                     lastMoveX = theRightController.view.frame.origin.x+theRightController.view.frame.size.width;
+                     
+                    frame = CGRectMake(frame.origin.x-theRootController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+                    theRootController.view.frame = frame;
+                    
+                    frame = CGRectMake(frame.origin.x-leftViewWidth, 0, leftViewWidth, theLeftController.view.frame.size.height);
+                    [theLeftController.view setFrame:frame];
+                }
+                completion:^(BOOL finished)
+                {
+                }];
+            }
+        }
+    }
+    
+    lastMoveX = panX;
+}
+
+
+- (void)tapHandle
+{
+    [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+    {
+        [self.layerView setAlpha:0];
+    }
+    completion:^(BOOL finished)
+    {
+        
+    }];
+    
+    leftHasShowed = NO;
+    rightHasShowed = NO;
+    
+    CGFloat duration = .3 * (theRootController.view.frame.origin.x) / self.view.bounds.size.width;
+    [UIView animateWithDuration:duration animations:^
+    {
+        CGRect frame = theRightController.view.frame;
+        frame.origin.x = theRootController.view.frame.size.width;
+        theRightController.view.frame = frame;
+        lastMoveX = 0;
+         
+        frame = CGRectMake(frame.origin.x-theRootController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+        theRootController.view.frame = frame;
+         
+        frame = CGRectMake(frame.origin.x-leftViewWidth, 0, leftViewWidth, theLeftController.view.frame.size.height);
+        [theLeftController.view setFrame:frame];
+    }
+    completion:^(BOOL finished)
+    {
+        
+    }];
+}
+
+#pragma mark - otherMethod
+-(void)setShadow
+{
+    if(shouldShowMarginShadow)
+    {
+        theRootController.view.layer.shadowPath = [UIBezierPath bezierPathWithRect:self.theRootController.view.bounds].CGPath;
+        [theRootController.view.layer setShadowColor:shadowColor.CGColor];
+        [theRootController.view.layer setShadowOpacity:0.2];
+    }
+    else
+    {
+        [theRootController.view.layer setShadowOpacity:0];
+    }
+}
+
+
+- (UIImage *)imageWithColor:(UIColor *)color
+{
+    CGRect rect=CGRectMake(0.0f, 0.0f, 1.0f, 1.0f);
+    UIGraphicsBeginImageContext(rect.size);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextSetFillColorWithColor(context, [color CGColor]);
+    CGContextFillRect(context, rect);
+    
+    UIImage *theImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return theImage;
+}
+
+
+
+- (void)setLeftViewController:(UIViewController *)leftController
+{
+    if ([leftController isKindOfClass:[UINavigationController class]])
+    {
+        [(UIMarginBarViewController*)[(UINavigationController*)leftController topViewController] setMarginViewController:self];
+    }
+    else
+    {
+        [(UIMarginBarViewController*)leftController setMarginViewController:self];
+    }
+    [self setTheLeftController:leftController];
+}
+
+
+- (void)setRightViewController:(UIViewController *)rightController
+{
+    if ([rightController isKindOfClass:[UINavigationController class]])
+    {
+        [(UIMarginBarViewController*)[(UINavigationController*)rightController topViewController] setMarginViewController:self];
+    }
+    else
+    {
+        [(UIMarginBarViewController*)rightController setMarginViewController:self];
+    }
+    [self setTheRightController:rightController];
+}
+
+
+- (void)setLeftBarButtonImage:(UIImage *)image
+{
+    UIViewController *rootController = [theRootController topViewController];
+    UINavigationItem *navItem = [rootController navigationItem];
+    CGSize size = image.size;
+    if (size.height > 44)
+    {
+        CGFloat ratio = size.height/44.0;
+        size.height = 44;
+        size.width = size.width/ratio;
+    }
+    
+    if (size.width > 61)
+    {
+        CGFloat ratio = size.width/61;
+        size.width = 61;
+        size.height = size.height/ratio;
+    }
+    
+    
+    CGRect rect = CGRectMake(5, (44-size.height)/2, size.width, size.height);
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    [button setFrame:rect];
+    [button setBackgroundImage:image forState:UIControlStateNormal];
+    [button addTarget:self action:@selector(leftBarButtonItemAction) forControlEvents:UIControlEventTouchUpInside];
+    UIBarButtonItem *leftItem = [[UIBarButtonItem alloc] initWithCustomView:button];
+    UIBarButtonItem *negativeSpacer = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+    [negativeSpacer setWidth:[[[UIDevice currentDevice] systemVersion] floatValue]>=7.0?-10:-5];
+    [navItem setLeftBarButtonItems:[NSArray arrayWithObjects:negativeSpacer, leftItem, nil]];
+    [negativeSpacer release];
+    [leftItem release];
+}
+
+
+- (void)setRightBarButtonImage:(UIImage *)image
+{
+    UIViewController *rootController = [theRootController topViewController];
+    UINavigationItem *navItem = [rootController navigationItem];
+    CGSize size = image.size;
+    if (size.height > 44)
+    {
+        CGFloat ratio = size.height/44.0;
+        size.height = 44;
+        size.width = size.width/ratio;
+    }
+    
+    if (size.width > 61)
+    {
+        CGFloat ratio = size.width/61;
+        size.width = 61;
+        size.height = size.height/ratio;
+    }
+    
+    
+    CGRect rect = CGRectMake(5, (44-size.height)/2, size.width, size.height);
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    [button setFrame:rect];
+    [button setBackgroundImage:image forState:UIControlStateNormal];
+    [button addTarget:self action:@selector(rightBarButtonItemAction) forControlEvents:UIControlEventTouchUpInside];
+    UIBarButtonItem *leftItem = [[UIBarButtonItem alloc] initWithCustomView:button];
+    UIBarButtonItem *negativeSpacer = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+    [negativeSpacer setWidth:[[[UIDevice currentDevice] systemVersion] floatValue]>=7.0?-10:-5];
+    [navItem setRightBarButtonItems:[NSArray arrayWithObjects:negativeSpacer, leftItem, nil]];
+    [negativeSpacer release];
+    [leftItem release];
+}
+
+
+- (void)leftBarButtonItemAction
+{
+    leftHasShowed = !leftHasShowed;
+    [self setShadow];
+    CGFloat duration = .3;
+    
+    if (shouldShowViewShadow)
+    {
+        [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+        {
+            [self.layerView setAlpha:self.layerView.alpha==0?1:0];
+        }
+        completion:^(BOOL finished)
+        {
+             
+        }];
+    }
+    
+    [UIView transitionWithView:theRootController.view duration:duration options:UIViewAnimationOptionCurveEaseOut animations:^
+    {
+        CGRect frame = theLeftController.view.frame;
+        frame.origin.x = leftHasShowed?0:-frame.size.width;
+        theLeftController.view.frame = frame;
+         
+        frame = CGRectMake(theLeftController.view.frame.origin.x+theLeftController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+        theRootController.view.frame = frame;
+         
+        if (theRightController)
+        {
+            CGRect rect = CGRectMake(frame.origin.x+frame.size.width, 0, rightViewWidth, theRightController.view.frame.size.height);
+            [theRightController.view setFrame:rect];
+        }
+    }
+    completion:^(BOOL finished)
+    {
+        
+    }];
+}
+
+
+
+- (void)rightBarButtonItemAction
+{
+    rightHasShowed = !rightHasShowed;
+
+    [self setShadow];
+    CGFloat duration = .3;
+    if (shouldShowViewShadow)
+    {
+        [UIView transitionWithView:self.layerView duration:0.25 options:UIViewAnimationOptionCurveEaseOut animations:^
+        {
+            [self.layerView setAlpha:self.layerView.alpha==0?1:0];
+        }
+        completion:^(BOOL finished)
+        {
+            
+        }];
+    }
+    
+    [UIView transitionWithView:theRootController.view duration:duration options:UIViewAnimationOptionCurveEaseOut animations:^
+    {
+        CGRect frame = theRightController.view.frame;
+        frame.origin.x = rightHasShowed?theRootController.view.frame.size.width-rightViewWidth:theRootController.view.frame.size.width;
+        theRightController.view.frame = frame;
+         
+        frame = CGRectMake(frame.origin.x-theRootController.view.frame.size.width, 0, theRootController.view.frame.size.width, theRootController.view.frame.size.height);
+        theRootController.view.frame = frame;
+         
+        if (theLeftController)
+        {
+            CGRect rect = CGRectMake(frame.origin.x-leftViewWidth, 0, leftViewWidth, theLeftController.view.frame.size.height);
+            [theLeftController.view setFrame:rect];
+        }
+    }
+    completion:^(BOOL finished)
+    {
+        
+    }];
+}
+
+
+
+- (void)resetNavgationBarViewBackground:(UIImage *)image
+{
+    UIBarMetrics barMetrics = UIBarMetricsDefault;
+    UIInterfaceOrientation orientation = [UIApplication sharedApplication].statusBarOrientation;
+    if (UIInterfaceOrientationIsPortrait(orientation))
+    {
+    }
+    else
+    {
+        barMetrics=UIBarMetricsCompact;
+    }
+    [theRootController.navigationBar setBackgroundImage:image forBarMetrics:barMetrics];
+    
+    if (shouldAlwaysShowMarginBarView)
+    {
+        
+    }
+}
+
+- (void)pushViewController:(UIViewController *)viewController barImage:(UIImage *)barImage animated:(BOOL)animated
+{
+    BOOL leftShow = leftHasShowed;
+    BOOL rightShow = rightHasShowed;
+    [self tapHandle];
+    
+    UIBarMetrics barMetrics = UIBarMetricsDefault;
+    UIImage *image = nil;
+    UIInterfaceOrientation orientation = [UIApplication sharedApplication].statusBarOrientation;
+    if (UIInterfaceOrientationIsPortrait(orientation))
+    {
+        image = [theRootController.navigationBar backgroundImageForBarMetrics:UIBarMetricsDefault];
+    }
+    else
+    {
+        barMetrics=UIBarMetricsCompact;
+        image = [theRootController.navigationBar backgroundImageForBarMetrics:UIBarMetricsCompact];
+    }
+    [theRootController pushViewController:viewController animated:animated];
+    [viewController.navigationController.navigationBar setBackgroundImage:barImage?barImage:image forBarMetrics:barMetrics];
+    
+    
+    NSTimeInterval period = .005;
+    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+    dispatch_source_set_timer(timer, dispatch_walltime(NULL, 0), period * NSEC_PER_SEC, 0);
+    dispatch_source_set_event_handler(timer, ^
+    {
+        NSArray *childControllers = [theRootController childViewControllers];
+        if (childControllers.count == 1)
+        {
+            if ([NSThread isMainThread])
+            {
+                [self resetNavgationBarViewBackground:image];
+                
+                if (leftShow)
+                {
+                    [self leftBarButtonItemAction];
+                }
+                
+                if (rightShow)
+                {
+                    [self rightBarButtonItemAction];
+                }
+            }
+            else
+            {
+                dispatch_sync(dispatch_get_main_queue(), ^
+                {
+                    [self resetNavgationBarViewBackground:image];
+                    
+                    if (leftShow)
+                    {
+                        [self leftBarButtonItemAction];
+                    }
+                    
+                    if (rightShow)
+                    {
+                        [self rightBarButtonItemAction];
+                    }
+                });
+            }
+            dispatch_source_cancel(timer);
+        }
+    });
+    dispatch_resume(timer);
+}
+@end

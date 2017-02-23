@@ -1,0 +1,6 @@
+framework module UIMarginViewController {
+  umbrella header "UIMarginViewController.h"
+
+  export *
+  module * { export * }
+}

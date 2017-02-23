@@ -1,0 +1,14 @@
+//
+//  RootViewController.h
+//  side
+//
+//  Created by xiaopengzhao on 16/9/29.
+//  Copyright © 2016年 appleDeveloper. All rights reserved.
+//
+
+#import <UIKit/UIKit.h>
+#import "LeftViewController.h"
+
+@interface RootViewController : UIViewController <UITableViewDataSource,UITableViewDelegate>
+
+@end
