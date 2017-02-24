@@ -6,16 +6,23 @@
     }
   },
   "DVTSourceControlWorkspaceBlueprintWorkingCopyStatesKey" : {
+    "1F8717825A8CA909C9F3F45B0A1BA7F3BCF2B2EF" : 9223372036854775807,
     "5bcc989d-a5d4-4c4d-8aab-fe287fbfd561++3050" : 9223372036854775807
   },
   "DVTSourceControlWorkspaceBlueprintIdentifierKey" : "586CF5D8-EC5A-467D-B8E0-8D0209BC7EE5",
   "DVTSourceControlWorkspaceBlueprintWorkingCopyPathsKey" : {
+    "1F8717825A8CA909C9F3F45B0A1BA7F3BCF2B2EF" : "",
     "5bcc989d-a5d4-4c4d-8aab-fe287fbfd561++3050" : "%E4%BE%A7%E6%BB%91\/"
   },
   "DVTSourceControlWorkspaceBlueprintNameKey" : "side",
   "DVTSourceControlWorkspaceBlueprintVersion" : 204,
   "DVTSourceControlWorkspaceBlueprintRelativePathToProjectKey" : "side.xcodeproj",
   "DVTSourceControlWorkspaceBlueprintRemoteRepositoriesKey" : [
+    {
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryURLKey" : "https:\/\/github.com\/OccasionallyPassing\/-.git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositorySystemKey" : "com.apple.dt.Xcode.sourcecontrol.Git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryIdentifierKey" : "1F8717825A8CA909C9F3F45B0A1BA7F3BCF2B2EF"
+    },
     {
       "DVTSourceControlWorkspaceBlueprintRemoteRepositoryURLKey" : "http:\/\/code.taobao.org\/svn\/iOSApplicationStore",
       "DVTSourceControlWorkspaceBlueprintRemoteRepositorySystemKey" : "com.apple.dt.Xcode.sourcecontrol.Subversion",
